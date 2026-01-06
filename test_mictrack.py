@@ -32,7 +32,10 @@ class TestMictrack(TestCase):
                 b"ETS,OK",
             ),
             (
-                {"command": "PASSWORD", "password": "aB35"},
+                {
+                    "command": "PASSWORD",
+                    "password": "aB35",
+                },
                 b"777,aB35",
                 b"777,OK",
             ),
@@ -181,6 +184,79 @@ class TestMictrack(TestCase):
                 },
                 b"896,+480",
                 b"896,OK",
+            ),
+            (
+                {
+                    "command": "KEEP_ALIVE",
+                    "duration": 60,
+                },
+                b"RWT,60",
+                b"RWT,OK",
+            ),
+            (
+                {
+                    "command": "POSITIONING",
+                    "priority": "WIFI",
+                },
+                b"PRIOR,1",
+                b"PRIOR,WIFI",
+            ),
+            (
+                {
+                    "command": "WIRELESS",
+                    "technology": "LTE",
+                    "lte_cat": "M1",
+                    "priority": "LTE_M1",
+                },
+                b"NWM,3,0,2",
+                b"NWM,OK",
+            ),
+            (
+                {
+                    "command": "WIRELESS",
+                    "technology": "LTE",
+                    "lte_cat": "NB1",
+                    "priority": "LTE_NB1",
+                },
+                b"NWM,3,1,3",
+                b"NWM,OK",
+            ),
+            (
+                {
+                    "command": "WIRELESS",
+                    "technology": "GSM",
+                    "lte_cat": "ANY",
+                    "priority": "GSM",
+                },
+                b"NWM,1,2,1",
+                b"NWM,OK",
+            ),
+            (
+                {
+                    "command": "RADIO_BAND",
+                    "lte_m1": "B12",
+                    "lte_nb1": "ANY",
+                },
+                b"BAND,12,0,f",
+                b"BAND,OK",
+            ),
+            (
+                {
+                    "command": "RADIO_BAND",
+                    "lte_m1": "ANY",
+                    "lte_nb1": "B20",
+                },
+                b"BAND,0,20,f",
+                b"BAND,OK",
+            ),
+            (
+                {
+                    "command": "RADIO_BAND",
+                    "lte_m1": "ANY",
+                    "lte_nb1": "ANY",
+                },
+                b"BAND,0,0,f",
+                b"BAND,OK",
             ),
             (
                 {

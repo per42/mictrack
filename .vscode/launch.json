@@ -5,18 +5,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "mictrack run",
+            "name": "mictrack config",
             "type": "debugpy",
             "request": "launch",
             "module": "mictrack",
             "args": [
                 "config",
                 "/dev/ttyUSB0",
-                "config/test.yaml"
+                "config/swedish_pet_on_traccar.yaml"
             ],
         },
         {
-            "name": "mictrack schema",
+            "name": "mictrack write-schema",
             "type": "debugpy",
             "request": "launch",
             "module": "mictrack",

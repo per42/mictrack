@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=80", "setuptools-scm>=8.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mictrack"
+readme = "README.md"
+dependencies = ['pydantic==2.12.5', 'pyserial==3.5', 'PyYAML==6.0.3']
+dynamic = ["version"]
+
+[project.scripts]
+mictrack = "mictrack:main"
+
+[project.optional-dependencies]
+dev = ["types-pyserial==3.5.0", "types-PyYAML==6.0.12"]
+
+[tool.setuptools]
+py-modules = ["mictrack"]
+
+[tool.setuptools_scm]

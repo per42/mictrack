@@ -1,20 +1,12 @@
-"""Configure [Mictrack MT710](https://www.mictrack.com/downloads/user-manual/4g-gps-tracker/MT710_User_Manual_V1.0.pdf) over USB
-
-Implements [mictrack MT710 USB Commands List](https://www.mictrack.com/downloads/Commands-list/Mictrack_MT710_Commands_List.pdf).
-
-It substitutes CoolTerm in the [MT710 USB Config Tool Tutorial (macOS Version)](https://help.mictrack.com/articles/mt710-usb-config-tool-tutorial-macos-version/).
-"""
-
 from abc import abstractmethod
 from collections.abc import Buffer
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import Enum, IntEnum
-from io import BytesIO, RawIOBase
-from typing import Annotated, BinaryIO, ClassVar, Literal, get_args
+from io import RawIOBase
+from pathlib import Path
+from typing import Annotated, ClassVar, Literal, get_args
 from pydantic import BaseModel, Field, ConfigDict, TypeAdapter
-from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
-from serial import Serial, SerialBase, serial_for_url
+from serial import Serial
 import yaml
 import logging
 from argparse import ArgumentParser, FileType
@@ -437,6 +429,101 @@ class TimeZone(Command):
         return (f"{round(self.timezone * 60):+}",)
 
 
+class KeepAlive(Command):
+    """Keep the TCP connection alive"""
+
+    command: Literal["KEEP_ALIVE"]
+    key = "RWT"
+
+    duration: Annotated[
+        int,
+        Field(ge=60, le=600, description="duration [seconds]", examples=[60]),
+    ]
+
+    def args(self) -> tuple[Arg, ...]:
+        return (self.duration,)
+
+
+PosPrio = Literal["GNSS", "WIFI"]
+
+
+class PositioningPriority(Command):
+    """Which positioning method is preferred"""
+
+    command: Literal["POSITIONING"]
+    key = "PRIOR"
+    priority: Annotated[PosPrio, Field(examples=["GNSS"])]
+
+    def args(self) -> tuple[Arg, ...]:
+        return (get_args(PosPrio).index(self.priority),)
+
+    def ack_arg(self) -> AckArg:
+        match self.priority:
+            case "GNSS":
+                return "GPS"
+            case "WIFI":
+                return "WIFI"
+
+
+WirelessTech = Literal["ANY", "GSM", "LTE"]
+LteCat = Literal["M1", "NB1", "ANY"]
+CatPrio = Literal["DEFAULT", "GSM", "LTE_M1", "LTE_NB1"]
+
+WIRELESS_TECH_ARG: dict[WirelessTech, int] = {
+    "ANY": 0,
+    "GSM": 1,
+    "LTE": 3,
+}
+
+
+class Wireless(Command):
+    """Wireless broadband standard"""
+
+    command: Literal["WIRELESS"]
+    key = "NWM"
+    technology: Annotated[WirelessTech, Field(examples=["LTE"])]
+    lte_cat: Annotated[LteCat, Field(examples=["NB1"])]
+    priority: Annotated[CatPrio, Field(examples=["LTE"])]
+
+    def args(self) -> tuple[Arg, ...]:
+        return (
+            WIRELESS_TECH_ARG[self.technology],
+            get_args(LteCat).index(self.lte_cat),
+            get_args(CatPrio).index(self.priority),
+        )
+
+
+BandFdd = Literal[
+    "B1", "B2", "B3", "B4", "B5", "B8", "B12", "B13", "B18", "B19", "B20", "B26", "B28"
+]
+BandTdd = Literal["39"]
+BandLteNb1 = Literal["ANY"] | BandFdd
+BandLteM1 = BandLteNb1 | BandTdd
+
+
+def arg_lte_m1(band: BandLteM1) -> int:
+    match band:
+        case "ANY":
+            return 0
+        case _:
+            return int(band[1:])
+
+
+class RadioBand(Command):
+    """Lock LTE Radio band
+
+    [LTE frequency bands](https://en.wikipedia.org/wiki/LTE_frequency_bands)
+    """
+
+    command: Literal["RADIO_BAND"]
+    key = "BAND"
+    lte_m1: Annotated[BandLteM1, Field(examples=["ANY"])]
+    lte_nb1: Annotated[BandLteNb1, Field(examples=["B8"])]
+
+    def args(self) -> tuple[Arg, ...]:
+        return arg_lte_m1(self.lte_m1), arg_lte_m1(self.lte_nb1), "f"
+
+
 class SaveReboot(Command):
     """Save config and reboot"""
 
@@ -495,6 +582,10 @@ type AnyCommand = Annotated[
     | WiFi
     | Button
     | TimeZone
+    | KeepAlive
+    | PositioningPriority
+    | Wireless
+    | RadioBand
     | SaveReboot
     | Reset
     | ReadConf
@@ -561,12 +652,12 @@ class LoggingIO(RawIOBase):
 
 def main() -> None:
     parser = ArgumentParser()
-    cmd = parser.add_subparsers(dest="cmd")
+    cmd = parser.add_subparsers(dest="cmd", required=True)
     config_parser = cmd.add_parser("config")
     config_parser.add_argument("port")
-    config_parser.add_argument("config", type=FileType("rt", encoding="utf-8"))
+    config_parser.add_argument("config", type=Path)
     schema_parser = cmd.add_parser("write-schema")
-    schema_parser.add_argument("schema", type=FileType("wt", encoding="utf-8"))
+    schema_parser.add_argument("schema", type=Path)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG)
@@ -574,14 +665,12 @@ def main() -> None:
 
     config_model = TypeAdapter(list[AnyCommand])
     if args.cmd == "write-schema":
-        yaml.dump(
-            config_model.json_schema(),
-            args.schema,
-            sort_keys=False,
-        )
+        with args.schema.open("wt", encoding="utf-8") as f:
+            yaml.dump(config_model.json_schema(), f, sort_keys=False)
         return
 
-    config = config_model.validate_python(yaml.safe_load(args.config))
+    with args.config.open("rt", encoding="utf-8") as f:
+        config = config_model.validate_python(yaml.safe_load(f))
 
     io = LoggingIO(
         Serial(
@@ -590,7 +679,7 @@ def main() -> None:
             timeout=0.1,
         ),
         logger.getChild("ser"),
-        "utf-8",
+        "ASCII",
     )
     for command in config:
         logger.info(f"Issuing command {command}")
